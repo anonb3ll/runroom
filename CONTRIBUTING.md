@@ -30,8 +30,13 @@ trying to run is worth as much as a patch.
 ```bash
 git clone https://github.com/runroom-dev/runroom
 cd runroom
-# setup instructions land with the first tagged release
+python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+
+.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest -q
+PATH="$PWD/.venv/bin:$PATH" ./examples/demo.sh
 ```
+
+All four must pass before you open a PR. CI runs exactly these.
 
 ## Pull requests
 

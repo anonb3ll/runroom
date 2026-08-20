@@ -11,8 +11,8 @@ Every dispatch, handoff, approval, rejection, and remediation is recorded. When
 you ask "who did this, on whose authority, and what did the reviewer see?",
 Runroom has the answer.
 
-- **Status:** pre-release. The public slice is being packaged now; see
-  [Project status](#project-status) before you try to install it.
+- **Status:** pre-release, installable from source. Not on PyPI yet; see
+  [Project status](#project-status).
 - **License:** [Apache-2.0](LICENSE)
 - **Runs locally.** No hosted service, no account, no telemetry.
 
@@ -51,40 +51,83 @@ Runroom makes the handoff itself a first-class object:
 
 ## Quickstart
 
-> Runroom is not yet published to PyPI. This section documents the intended
-> first-run experience and will become executable with the first tagged
-> release. Nothing here is a claim about what works today.
+Runroom is not on PyPI yet. Install from source — this path is exercised in CI on
+every commit, so it works today:
 
 ```bash
-pip install runroom        # not yet available — see Project status
-runroom init               # create a local room
-runroom agent add reviewer --provider <provider>
-runroom agent add worker   --provider <other-provider>
-runroom task add "Fix the flaky auth test"
-runroom dispatch <task-id> --to worker
-runroom handoff <task-id> --to reviewer --scope read-only
-runroom review <task-id>   # approve | reject | remediate | continue
-runroom log <task-id>      # the full audit history
+git clone https://github.com/runroom-dev/runroom
+cd runroom
+python3 -m venv .venv && .venv/bin/pip install -e .
+export PATH="$PWD/.venv/bin:$PATH"
 ```
+
+Then run the whole workflow. `./examples/demo.sh` does exactly this, end to end,
+in a temporary directory:
+
+```bash
+runroom --room ./myroom init
+
+# Two agents on two different providers, and a human who can resolve gates.
+runroom --room ./myroom agent add worker --provider provider-a
+runroom --room ./myroom agent add second --provider provider-b
+runroom --room ./myroom human add anna
+
+# One run, dispatched, then handed on with an explicit bound.
+runroom --room ./myroom task add "Fix the flaky auth test"
+runroom --room ./myroom dispatch 1 --to worker
+runroom --room ./myroom handoff 1 --to second --by worker --scope read-only
+
+# read-only permits comment and submit. Anything else is refused and recorded.
+runroom --room ./myroom act 1 --by second --action merge      # exits 1
+runroom --room ./myroom act 1 --by second --action comment --note "CI 4821 green"
+
+# The gate. It blocks until a person resolves it.
+runroom --room ./myroom submit 1 --by second --summary "auth test fixed"
+runroom --room ./myroom review 1 --by anna --decision remediate --note "add a test"
+runroom --room ./myroom review 1 --by anna --decision approve
+
+runroom --room ./myroom log 1        # the full history, --json for machines
+runroom --room ./myroom status       # every run and who holds it
+```
+
+The history that produces is the point:
+
+```
+   1  system       run-created        {"title": "Fix the flaky auth test"}
+   2  worker       dispatch           {"scope": "full", "to": "worker"}
+   3  worker       handoff            {"crossed_provider_boundary": true, "scope": "read-only", ...}
+   4  second       scope-violation    {"attempted": "merge", "scope": "read-only"}
+   5  second       comment            {"note": "CI 4821 green"}
+   6  second       review-requested   {"summary": "auth test fixed"}
+   7  anna         review-decision    {"decision": "remediate", "note": "add a test", ...}
+   8  second       review-requested   {"summary": "regression test added"}
+   9  anna         review-decision    {"decision": "approve", ...}
+```
+
+Note line 4. The refused action is in the record — a blocked attempt is evidence,
+and dropping it would hide the case you most want to see.
 
 ## Frequently asked questions
 
 ### How do I hand off a task from one AI agent to another?
 
-Dispatch the run to the first agent, then hand it off with an explicit scope.
+`runroom dispatch <id> --to <agent>`, then
+`runroom handoff <id> --to <other-agent> --by <agent> --scope <scope>`.
 The receiving agent inherits the run's history and its bounded permissions, not
 your whole environment. The handoff is recorded with both identities.
 
 ### How do I keep a human in the loop without babysitting every step?
 
-Put review gates only where the cost of being wrong is real — merges, deploys,
+`runroom submit` opens a gate; `runroom review --decision approve|reject|remediate|continue`
+closes it. Put gates only where the cost of being wrong is real — merges, deploys,
 external messages, credential use. Between gates the agents proceed on their
 own. A gate blocks until a human resolves it; it does not time out into
 approval.
 
 ### Does Runroom work across different model providers?
 
-Yes. Participants are identities, not models. Two participants can run on
+Yes. Participants are identities, not models. Each handoff records
+`crossed_provider_boundary`, and credentials never travel with a run. Two participants can run on
 different providers, and the provider boundary is enforced and recorded — an
 agent's credentials are not shared with the participant it hands off to.
 
