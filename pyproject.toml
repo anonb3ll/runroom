@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "runroom"
+version = "0.0.1"
+description = "Governed handoffs between AI agents and humans: bounded scopes, review gates, append-only audit history."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "The Runroom Contributors" }]
+keywords = [
+    "ai-agents", "multi-agent", "agent-handoff", "human-in-the-loop",
+    "audit-log", "governance", "mcp", "agent-coordination",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "ruff>=0.5"]
+
+[project.scripts]
+runroom = "runroom.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/runroom"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
