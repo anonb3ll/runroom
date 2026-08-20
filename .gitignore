@@ -28,3 +28,6 @@ node_modules/
 .DS_Store
 .idea/
 .vscode/
+
+# local verification venv
+.venv/

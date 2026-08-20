@@ -55,7 +55,9 @@ def test_the_provider_boundary_crossing_is_recorded(staffed):
 
 
 def test_a_same_provider_handoff_is_marked_as_such(staffed):
-    staffed.add_participant("sibling", kind="agent", provider="provider-a", credential_ref="cred-a2")
+    staffed.add_participant(
+        "sibling", kind="agent", provider="provider-a", credential_ref="cred-a2"
+    )
     run = staffed.add_run("Same-provider handoff")
     staffed.dispatch(run.id, to="worker")
     staffed.handoff(run.id, to="sibling", by="worker", scope="read-only")

@@ -41,10 +41,13 @@ def test_the_full_demo_path(room_dir, capsys):
     run_id = int(out.strip().split()[-1])
 
     assert run(["dispatch", str(run_id), "--to", "worker"], room_dir) == 0
-    assert run(
-        ["handoff", str(run_id), "--to", "second", "--by", "worker", "--scope", "propose"],
-        room_dir,
-    ) == 0
+    assert (
+        run(
+            ["handoff", str(run_id), "--to", "second", "--by", "worker", "--scope", "propose"],
+            room_dir,
+        )
+        == 0
+    )
     assert run(["submit", str(run_id), "--by", "second", "--summary", "fix ready"], room_dir) == 0
     assert run(["review", str(run_id), "--by", "anna", "--decision", "approve"], room_dir) == 0
 
@@ -98,3 +101,28 @@ def test_status_shows_who_holds_what(room_dir, capsys):
     out = capsys.readouterr().out
     assert "worker" in out
     assert "claimed" in out
+
+
+def test_act_records_work_and_refuses_out_of_scope(room_dir, capsys):
+    run(["init"], room_dir)
+    run(["agent", "add", "worker", "--provider", "provider-a"], room_dir)
+    run(["agent", "add", "second", "--provider", "provider-b"], room_dir)
+    run(["task", "add", "Fix the flaky auth test"], room_dir)
+    run(["dispatch", "1", "--to", "worker"], room_dir)
+    run(["handoff", "1", "--to", "second", "--by", "worker", "--scope", "read-only"], room_dir)
+    capsys.readouterr()
+
+    assert (
+        run(["act", "1", "--by", "second", "--action", "comment", "--note", "ci green"], room_dir)
+        == 0
+    )
+
+    assert run(["act", "1", "--by", "second", "--action", "merge"], room_dir) == 1
+    err = capsys.readouterr().err
+    assert "read-only" in err
+
+    capsys.readouterr()
+    run(["log", "1"], room_dir)
+    log = capsys.readouterr().out
+    assert "comment" in log
+    assert "scope-violation" in log

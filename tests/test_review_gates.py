@@ -102,3 +102,23 @@ def test_review_outside_an_open_gate_is_refused(staffed):
 
     with pytest.raises(GateBlocked):
         staffed.review(run.id, by="anna", decision="approve")
+
+
+def test_a_resolved_run_holds_no_scope(staffed):
+    """An approved run is nobody's to act on, so it carries no lingering permission."""
+    run_id = _gated(staffed)
+    staffed.review(run_id, by="anna", decision="approve")
+
+    run = staffed.get_run(run_id)
+    assert run.holder is None
+    assert run.scope is None
+
+
+def test_a_remediated_run_keeps_the_scope_it_had(staffed):
+    run = staffed.add_run("Deploy the auth fix")
+    staffed.dispatch(run.id, to="worker")
+    staffed.handoff(run.id, to="second", by="worker", scope="propose")
+    staffed.request_review(run.id, by="second", summary="ready")
+    staffed.review(run.id, by="anna", decision="remediate", note="one more thing")
+
+    assert staffed.get_run(run.id).scope == "propose"
