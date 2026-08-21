@@ -107,6 +107,16 @@ The history that produces is the point:
 Note line 4. The refused action is in the record — a blocked attempt is evidence,
 and dropping it would hide the case you most want to see.
 
+## Documentation
+
+| Guide | Description |
+| --- | --- |
+| [docs/README.md](docs/README.md) | Documentation index |
+| [docs/cli-reference.md](docs/cli-reference.md) | Full CLI reference |
+| [docs/architecture.md](docs/architecture.md) | Runs, scopes, gates, audit model |
+| [docs/limitations.md](docs/limitations.md) | Honest boundaries |
+| [docs/integration-contract.md](docs/integration-contract.md) | Optional Citetrail integration |
+
 ## Frequently asked questions
 
 ### How do I hand off a task from one AI agent to another?
