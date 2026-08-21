@@ -28,7 +28,7 @@ trying to run is worth as much as a patch.
 ## Development setup
 
 ```bash
-git clone https://github.com/runroom-dev/runroom
+git clone https://github.com/anonb3ll/runroom
 cd runroom
 python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 

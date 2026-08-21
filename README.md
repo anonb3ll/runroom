@@ -55,7 +55,7 @@ Runroom is not on PyPI yet. Install from source — this path is exercised in CI
 every commit, so it works today:
 
 ```bash
-git clone https://github.com/runroom-dev/runroom
+git clone https://github.com/anonb3ll/runroom
 cd runroom
 python3 -m venv .venv && .venv/bin/pip install -e .
 export PATH="$PWD/.venv/bin:$PATH"
@@ -172,7 +172,7 @@ lives outside this repo.
 
 ## Related project
 
-[Citetrail](https://github.com/citetrail/citetrail) gives agents local,
+[Citetrail](https://github.com/anonb3ll/citetrail) gives agents local,
 provenance-backed recall of what your browser saw. The two projects are
 independent and neither requires the other; an optional integration
 demonstrates Citetrail references feeding a governed Runroom task.
@@ -190,6 +190,9 @@ Pre-release, pre-1.0. Interfaces will change. Runroom is being released to find
 out whether the problem it solves is a problem other people have — if you try
 it, the most useful thing you can send back is what you were trying to do and
 where it stopped working.
+
+Published at [github.com/anonb3ll/runroom](https://github.com/anonb3ll/runroom).
+Organization migration to `runroom-dev` is planned once the GitHub org is created.
 
 ## License
 
