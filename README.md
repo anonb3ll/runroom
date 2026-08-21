@@ -191,9 +191,6 @@ out whether the problem it solves is a problem other people have — if you try
 it, the most useful thing you can send back is what you were trying to do and
 where it stopped working.
 
-Published at [github.com/anonb3ll/runroom](https://github.com/anonb3ll/runroom).
-Organization migration to `runroom-dev` is planned once the GitHub org is created.
-
 ## License
 
 [Apache License 2.0](LICENSE). Copyright 2026 The Runroom Contributors.
