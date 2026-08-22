@@ -38,7 +38,8 @@ PATH="$PWD/.venv/bin:$PATH" ./examples/demo.sh
 
 All four must pass before you open a PR. CI runs exactly these. If you use
 [uv](https://github.com/astral-sh/uv), `uv.lock` is present for a reproducible
-dev install (`uv sync --extra dev`).
+dev install (`uv sync --extra dev`). Dependabot opens weekly PRs for `uv` and
+GitHub Actions updates.
 
 ## Pull requests
 
