@@ -9,9 +9,10 @@ There are no backported security fixes yet.
 
 **Do not open a public issue.**
 
-Report privately through GitHub's
-[private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)
-on this repository. Include:
+Report privately via this repository's
+[security advisory form](https://github.com/anonb3ll/runroom/security/advisories/new)
+([how private reporting works](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)).
+Include:
 
 - what an attacker can do, and what access they need to start;
 - the smallest reproduction you have;
@@ -42,3 +43,14 @@ connected agents are **capable but not trustworthy** — they may be wrong,
 manipulated by content they read, or overconfident. Gates, bounded scopes, and
 an append-only audit log exist for that case. Runroom makes no compliance or
 certification claim.
+
+## Maintainer setup
+
+Private vulnerability reporting is a GitHub repository setting, not a file in
+this tree. Enable it at
+[Settings → Code security](https://github.com/anonb3ll/runroom/settings/security_analysis)
+under **Private vulnerability reporting**, so the form linked above exists.
+
+Recommended on the same page for a public repo: Dependabot alerts, Dependabot
+security updates, and secret scanning. Version updates and CodeQL are already
+configured in `.github/dependabot.yml` and `.github/workflows/codeql.yml`.
