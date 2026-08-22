@@ -1,5 +1,8 @@
 # Runroom
 
+[![CI](https://github.com/anonb3ll/runroom/actions/workflows/ci.yml/badge.svg)](https://github.com/anonb3ll/runroom/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **A shared room for one run: two agents, one human, one task ledger, full history.**
 
 Runroom is an open-source coordination layer for multi-agent work. It lets two

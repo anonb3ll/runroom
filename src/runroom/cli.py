@@ -9,6 +9,7 @@ import json
 import sys
 from pathlib import Path
 
+from runroom import __version__
 from runroom.errors import RunroomError
 from runroom.room import Room
 
@@ -19,6 +20,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="runroom",
         description="Governed handoffs between AI agents and humans.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument(
         "--room",

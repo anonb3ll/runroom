@@ -15,7 +15,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Append-only audit history, enforced by SQLite triggers.
 - `runroom` CLI: init, agent/human add, task add, dispatch, handoff, act,
   submit, review, log (`--json`), recover, status.
+- `runroom --version` and `python -m runroom` entry.
 - `examples/demo.sh` — the README workflow end to end, run in CI.
-- CI on Python 3.10, 3.12, and 3.13: ruff check, ruff format, pytest, demo.
+- CI on Python 3.10, 3.12, and 3.13: ruff check, ruff format, pytest, demo,
+  and a wheel install smoke test.
+
+### Fixed
+- CLI reference exit codes: recorded refusals (such as scope violations) exit
+  `1`, matching the CLI and the README demo.
 
 <!-- No release has been tagged yet. -->

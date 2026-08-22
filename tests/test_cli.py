@@ -16,6 +16,13 @@ def run(argv, room_dir):
     return main(["--room", str(room_dir), *argv])
 
 
+def test_version_flag_prints_package_version(capsys):
+    with pytest.raises(SystemExit) as exited:
+        main(["--version"])
+    assert exited.value.code == 0
+    assert "0.0.1" in capsys.readouterr().out
+
+
 def test_init_creates_a_room(room_dir, capsys):
     assert run(["init"], room_dir) == 0
     assert (room_dir / "runroom.db").exists()
