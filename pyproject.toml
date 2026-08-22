@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "runroom"
-version = "0.0.1"
+dynamic = ["version"]
 description = "Governed handoffs between AI agents and humans: bounded scopes, review gates, append-only audit history."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,6 +19,10 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = []
@@ -26,8 +30,18 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=7", "ruff>=0.5"]
 
+[project.urls]
+Homepage = "https://github.com/anonb3ll/runroom"
+Documentation = "https://github.com/anonb3ll/runroom/tree/main/docs"
+Repository = "https://github.com/anonb3ll/runroom"
+Issues = "https://github.com/anonb3ll/runroom/issues"
+Changelog = "https://github.com/anonb3ll/runroom/blob/main/CHANGELOG.md"
+
 [project.scripts]
 runroom = "runroom.cli:main"
+
+[tool.hatch.version]
+path = "src/runroom/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/runroom"]

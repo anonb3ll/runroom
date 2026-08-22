@@ -46,4 +46,4 @@ exchange API keys or spawn subprocesses — it only records who held authority w
 ## What Runroom does not do
 
 See [limitations.md](limitations.md): no OS sandbox, no autonomy layer, no sync,
-no MCP server in v0.1 (CLI is the integration surface today).
+no MCP server yet (CLI is the integration surface today).

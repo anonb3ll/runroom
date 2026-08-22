@@ -1,7 +1,8 @@
 # CLI reference
 
 All commands accept `--room PATH` (default: `.runroom`). The room directory holds
-one SQLite ledger; never commit it.
+one SQLite ledger; never commit it. `runroom --version` prints the installed
+version. `python -m runroom` is equivalent to the `runroom` entry point.
 
 ## Lifecycle
 
@@ -55,8 +56,10 @@ Gates do not time out into approval.
 
 ## Exit codes
 
-- `0` — success (including intentional refusals that were recorded, e.g. scope violation on `act`)
-- `1` — Runroom refused the command (`runroom: …` on stderr)
+- `0` — success
+- `1` — Runroom refused the command (`runroom: …` on stderr). Refusals that leave
+  evidence (for example a `scope-violation` on `act`) still exit `1`; the audit
+  record is written before the process exits.
 
 ## Environment
 

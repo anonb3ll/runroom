@@ -36,7 +36,9 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 PATH="$PWD/.venv/bin:$PATH" ./examples/demo.sh
 ```
 
-All four must pass before you open a PR. CI runs exactly these.
+All four must pass before you open a PR. CI runs exactly these. If you use
+[uv](https://github.com/astral-sh/uv), `uv.lock` is present for a reproducible
+dev install (`uv sync --extra dev`).
 
 ## Pull requests
 
