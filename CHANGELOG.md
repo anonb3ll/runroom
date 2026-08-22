@@ -19,6 +19,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `examples/demo.sh` — the README workflow end to end, run in CI.
 - CI on Python 3.10, 3.12, and 3.13: ruff check, ruff format, pytest, demo,
   and a wheel install smoke test.
+- Dependabot for `uv` and GitHub Actions; CodeQL Python scanning.
 
 ### Fixed
 - CLI reference exit codes: recorded refusals (such as scope violations) exit
