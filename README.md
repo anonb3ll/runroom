@@ -61,11 +61,19 @@ every commit, so it works today:
 git clone https://github.com/anonb3ll/runroom
 cd runroom
 python3 -m venv .venv && .venv/bin/pip install -e .
-export PATH="$PWD/.venv/bin:$PATH"
 ```
 
-Then run the whole workflow. `./examples/demo.sh` does exactly this, end to end,
-in a temporary directory:
+The install puts `runroom` in `.venv/bin`. Put that directory on `PATH` (or call
+`.venv/bin/runroom` directly) before any CLI command or the demo script:
+
+```bash
+export PATH="$PWD/.venv/bin:$PATH"
+PATH="$PWD/.venv/bin:$PATH" ./examples/demo.sh
+```
+
+`./examples/demo.sh` runs the whole workflow end to end in a temporary directory.
+Without the venv on `PATH`, the script exits with a short install hint. The same
+commands, typed by hand:
 
 ```bash
 runroom --room ./myroom init
