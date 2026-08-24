@@ -9,4 +9,10 @@
 | [Private exclusions](private-exclusions.md) | What deliberately lives outside this repo |
 | [Integration contract](integration-contract.md) | Optional link to Citetrail |
 
-Start with the [README](../README.md) quickstart, then run `./examples/demo.sh` for the full workflow.
+Start with the [README](../README.md) quickstart, then run the demo with the
+venv on `PATH`:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e .
+PATH="$PWD/.venv/bin:$PATH" ./examples/demo.sh
+```

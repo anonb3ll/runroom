@@ -9,6 +9,20 @@
 
 set -euo pipefail
 
+if ! command -v runroom >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+runroom: command not found.
+
+Install into a local venv, then put .venv/bin on PATH before running this demo:
+
+  python3 -m venv .venv && .venv/bin/pip install -e .
+  PATH="$PWD/.venv/bin:$PATH" ./examples/demo.sh
+
+Or call the binary directly: .venv/bin/runroom --help
+EOF
+  exit 127
+fi
+
 ROOM="$(mktemp -d)/demo-room"
 run() { runroom --room "$ROOM" "$@"; }
 step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
