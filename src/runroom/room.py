@@ -228,9 +228,11 @@ class Room:
                 )
 
             now = self._now()
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE runs SET holder = ?, status = ?, scope = ?, lease_expires_at = ?,"
-                " lease_seconds = ?, updated_at = ? WHERE id = ?",
+                " lease_seconds = ?, updated_at = ?"
+                " WHERE id = ? AND status != ?"
+                " AND (holder IS NULL OR lease_expires_at <= ? OR holder = ?)",
                 (
                     receiver.name,
                     STATUS_CLAIMED,
@@ -239,8 +241,22 @@ class Room:
                     lease,
                     now,
                     run_id,
+                    STATUS_AWAITING_REVIEW,
+                    now,
+                    receiver.name,
                 ),
             )
+            if cur.rowcount == 0:
+                current = self.get_run(run_id)
+                if current.status == STATUS_AWAITING_REVIEW:
+                    raise GateBlocked(
+                        f"run {run_id} is awaiting review; resolve the gate before dispatching"
+                    )
+                raise AlreadyClaimed(
+                    f"run {run_id} is already claimed by {current.holder!r}; "
+                    f"it must be released, handed off, or its lease must expire"
+                )
+
             self._record(
                 run_id,
                 actor=receiver.name,
@@ -270,11 +286,14 @@ class Room:
             sender = self.get_participant(by)
             now = self._now()
             lease = lease if lease is not None else (run.lease_seconds or DEFAULT_LEASE_SECONDS)
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE runs SET holder = ?, status = ?, scope = ?, lease_expires_at = ?,"
-                " lease_seconds = ?, updated_at = ? WHERE id = ?",
-                (receiver.name, STATUS_CLAIMED, scope, now + lease, lease, now, run.id),
+                " lease_seconds = ?, updated_at = ? WHERE id = ? AND holder = ?",
+                (receiver.name, STATUS_CLAIMED, scope, now + lease, lease, now, run.id, by),
             )
+            if cur.rowcount == 0:
+                self._require_holder(run_id, by)
+
             self._record(
                 run_id,
                 actor=sender.name,
@@ -294,11 +313,14 @@ class Room:
         with self._transaction():
             self._require_holder(run_id, by)
             now = self._now()
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE runs SET holder = NULL, status = ?, scope = NULL, lease_expires_at = NULL,"
-                " updated_at = ? WHERE id = ?",
-                (STATUS_OPEN, now, run_id),
+                " updated_at = ? WHERE id = ? AND holder = ?",
+                (STATUS_OPEN, now, run_id, by),
             )
+            if cur.rowcount == 0:
+                self._require_holder(run_id, by)
+
             self._record(run_id, actor=by, action="release", detail={})
             return self.get_run(run_id)
 
@@ -336,10 +358,17 @@ class Room:
         with self._transaction():
             self._require_holder(run_id, by)
             now = self._now()
-            self._conn.execute(
-                "UPDATE runs SET status = ?, submitted_by = ?, updated_at = ? WHERE id = ?",
-                (STATUS_AWAITING_REVIEW, by, now, run_id),
+            cur = self._conn.execute(
+                "UPDATE runs SET status = ?, submitted_by = ?, updated_at = ?"
+                " WHERE id = ? AND holder = ? AND status != ?",
+                (STATUS_AWAITING_REVIEW, by, now, run_id, by, STATUS_AWAITING_REVIEW),
             )
+            if cur.rowcount == 0:
+                current = self.get_run(run_id)
+                if current.status == STATUS_AWAITING_REVIEW:
+                    raise GateBlocked(f"run {run_id} is already awaiting review")
+                self._require_holder(run_id, by)
+
             self._record(run_id, actor=by, action="review-requested", detail={"summary": summary})
             return self.get_run(run_id)
 
@@ -377,9 +406,9 @@ class Room:
             else:  # remediate and continue both return the work to whoever submitted it
                 status, holder = STATUS_CLAIMED, run.submitted_by
 
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE runs SET status = ?, holder = ?, scope = ?, lease_expires_at = ?,"
-                " updated_at = ? WHERE id = ?",
+                " updated_at = ? WHERE id = ? AND status = ?",
                 (
                     status,
                     holder,
@@ -387,8 +416,17 @@ class Room:
                     (now + (run.lease_seconds or DEFAULT_LEASE_SECONDS)) if holder else None,
                     now,
                     run_id,
+                    STATUS_AWAITING_REVIEW,
                 ),
             )
+            if cur.rowcount == 0:
+                current = self.get_run(run_id)
+                if current.status != STATUS_AWAITING_REVIEW:
+                    raise GateBlocked(
+                        f"run {run_id} has no open review gate (status is {current.status!r}); "
+                        f"a participant must request review first"
+                    )
+
             self._record(
                 run_id,
                 actor=reviewer.name,
@@ -411,18 +449,20 @@ class Room:
         recovered = []
         for row in rows:
             with self._transaction():
-                self._conn.execute(
+                cur = self._conn.execute(
                     "UPDATE runs SET holder = NULL, status = ?, scope = NULL,"
-                    " lease_expires_at = NULL, updated_at = ? WHERE id = ?",
-                    (STATUS_OPEN, now, row["id"]),
+                    " lease_expires_at = NULL, updated_at = ? WHERE id = ?"
+                    " AND holder = ? AND status = ? AND lease_expires_at <= ?",
+                    (STATUS_OPEN, now, row["id"], row["holder"], STATUS_CLAIMED, now),
                 )
-                self._record(
-                    row["id"],
-                    actor="system",
-                    action="claim-expired",
-                    detail={"was_held_by": row["holder"], "scope": row["scope"]},
-                )
-                recovered.append(int(row["id"]))
+                if cur.rowcount == 1:
+                    self._record(
+                        row["id"],
+                        actor="system",
+                        action="claim-expired",
+                        detail={"was_held_by": row["holder"], "scope": row["scope"]},
+                    )
+                    recovered.append(int(row["id"]))
         return recovered
 
     # -- credentials ---------------------------------------------------------
