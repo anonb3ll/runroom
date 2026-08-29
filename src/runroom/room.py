@@ -13,7 +13,8 @@ Design rules that the tests hold in place:
 import json
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -113,6 +114,28 @@ class Room:
         """The raw connection. Exposed for inspection — history stays immutable regardless."""
         return self._conn
 
+    @contextmanager
+    def _transaction(self) -> Generator[None, None, None]:
+        """Wrap operations in an explicit IMMEDIATE transaction.
+
+        Because the SQLite connection uses isolation_level=None (autocommit mode),
+        transactions must be managed explicitly with BEGIN IMMEDIATE, COMMIT, and
+        ROLLBACK to ensure atomic state transitions and audit events.
+        """
+        if getattr(self, "_in_tx", 0) > 0:
+            yield
+            return
+        self._in_tx = 1
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            yield
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+        finally:
+            self._in_tx = 0
+
     def _now(self) -> float:
         return self._clock()
 
@@ -127,12 +150,14 @@ class Room:
         reviewer: bool = False,
     ) -> Participant:
         """Register an identity. Two agents on the same provider are still two participants."""
-        self._conn.execute(
-            "INSERT INTO participants (name, kind, provider, credential_ref, reviewer, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (name, kind, provider, credential_ref, int(reviewer), self._now()),
-        )
-        return self.get_participant(name)
+        with self._transaction():
+            self._conn.execute(
+                "INSERT INTO participants"
+                " (name, kind, provider, credential_ref, reviewer, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (name, kind, provider, credential_ref, int(reviewer), self._now()),
+            )
+            return self.get_participant(name)
 
     def get_participant(self, name: str) -> Participant:
         row = self._conn.execute("SELECT * FROM participants WHERE name = ?", (name,)).fetchone()
@@ -153,15 +178,16 @@ class Room:
     # -- runs ----------------------------------------------------------------
 
     def add_run(self, title: str, notes: str = "") -> Run:
-        now = self._now()
-        cur = self._conn.execute(
-            "INSERT INTO runs (title, notes, status, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (title, notes, STATUS_OPEN, now, now),
-        )
-        run_id = int(cur.lastrowid)
-        self._record(run_id, actor="system", action="run-created", detail={"title": title})
-        return self.get_run(run_id)
+        with self._transaction():
+            now = self._now()
+            cur = self._conn.execute(
+                "INSERT INTO runs (title, notes, status, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (title, notes, STATUS_OPEN, now, now),
+            )
+            run_id = int(cur.lastrowid)
+            self._record(run_id, actor="system", action="run-created", detail={"title": title})
+            return self.get_run(run_id)
 
     def get_run(self, run_id: int) -> Run:
         row = self._conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -182,44 +208,46 @@ class Room:
         lease: float = DEFAULT_LEASE_SECONDS,
     ) -> Run:
         """Assign a run. Refused if someone else holds a live claim on it."""
-        run = self.get_run(run_id)
-        receiver = self.get_participant(to)
+        with self._transaction():
+            run = self.get_run(run_id)
+            receiver = self.get_participant(to)
 
-        if run.status == STATUS_AWAITING_REVIEW:
-            raise GateBlocked(
-                f"run {run_id} is awaiting review; resolve the gate before dispatching"
+            if run.status == STATUS_AWAITING_REVIEW:
+                raise GateBlocked(
+                    f"run {run_id} is awaiting review; resolve the gate before dispatching"
+                )
+
+            if run.holder is not None and not self._lease_expired(run):
+                if run.holder == to:
+                    # Idempotent: same holder, fresh lease, no state change
+                    self._renew(run_id, lease)
+                    return self.get_run(run_id)
+                raise AlreadyClaimed(
+                    f"run {run_id} is already claimed by {run.holder!r}; "
+                    f"it must be released, handed off, or its lease must expire"
+                )
+
+            now = self._now()
+            self._conn.execute(
+                "UPDATE runs SET holder = ?, status = ?, scope = ?, lease_expires_at = ?,"
+                " lease_seconds = ?, updated_at = ? WHERE id = ?",
+                (
+                    receiver.name,
+                    STATUS_CLAIMED,
+                    scopes.DEFAULT_SCOPE,
+                    now + lease,
+                    lease,
+                    now,
+                    run_id,
+                ),
             )
-
-        if run.holder is not None and not self._lease_expired(run):
-            if run.holder == to:
-                self._renew(run_id, lease)  # idempotent: same holder, fresh lease, no state change
-                return self.get_run(run_id)
-            raise AlreadyClaimed(
-                f"run {run_id} is already claimed by {run.holder!r}; "
-                f"it must be released, handed off, or its lease must expire"
-            )
-
-        now = self._now()
-        self._conn.execute(
-            "UPDATE runs SET holder = ?, status = ?, scope = ?, lease_expires_at = ?,"
-            " lease_seconds = ?, updated_at = ? WHERE id = ?",
-            (
-                receiver.name,
-                STATUS_CLAIMED,
-                scopes.DEFAULT_SCOPE,
-                now + lease,
-                lease,
-                now,
+            self._record(
                 run_id,
-            ),
-        )
-        self._record(
-            run_id,
-            actor=receiver.name,
-            action="dispatch",
-            detail={"to": receiver.name, "scope": scopes.DEFAULT_SCOPE, "lease_seconds": lease},
-        )
-        return self.get_run(run_id)
+                actor=receiver.name,
+                action="dispatch",
+                detail={"to": receiver.name, "scope": scopes.DEFAULT_SCOPE, "lease_seconds": lease},
+            )
+            return self.get_run(run_id)
 
     def handoff(
         self,
@@ -234,43 +262,45 @@ class Room:
         The lease is renewed for the duration the run already carried, so handing work
         on cannot quietly extend a deliberately short claim into a long one.
         """
-        run = self._require_holder(run_id, by)
-        receiver = self.get_participant(to)
-        scopes.actions_for(scope)  # refuses an unknown scope rather than defaulting
+        with self._transaction():
+            run = self._require_holder(run_id, by)
+            receiver = self.get_participant(to)
+            scopes.actions_for(scope)  # refuses an unknown scope rather than defaulting
 
-        sender = self.get_participant(by)
-        now = self._now()
-        lease = lease if lease is not None else (run.lease_seconds or DEFAULT_LEASE_SECONDS)
-        self._conn.execute(
-            "UPDATE runs SET holder = ?, status = ?, scope = ?, lease_expires_at = ?,"
-            " lease_seconds = ?, updated_at = ? WHERE id = ?",
-            (receiver.name, STATUS_CLAIMED, scope, now + lease, lease, now, run.id),
-        )
-        self._record(
-            run_id,
-            actor=sender.name,
-            action="handoff",
-            detail={
-                "to": receiver.name,
-                "scope": scope,
-                "lease_seconds": lease,
-                "from_provider": sender.provider,
-                "to_provider": receiver.provider,
-                "crossed_provider_boundary": sender.provider != receiver.provider,
-            },
-        )
-        return self.get_run(run_id)
+            sender = self.get_participant(by)
+            now = self._now()
+            lease = lease if lease is not None else (run.lease_seconds or DEFAULT_LEASE_SECONDS)
+            self._conn.execute(
+                "UPDATE runs SET holder = ?, status = ?, scope = ?, lease_expires_at = ?,"
+                " lease_seconds = ?, updated_at = ? WHERE id = ?",
+                (receiver.name, STATUS_CLAIMED, scope, now + lease, lease, now, run.id),
+            )
+            self._record(
+                run_id,
+                actor=sender.name,
+                action="handoff",
+                detail={
+                    "to": receiver.name,
+                    "scope": scope,
+                    "lease_seconds": lease,
+                    "from_provider": sender.provider,
+                    "to_provider": receiver.provider,
+                    "crossed_provider_boundary": sender.provider != receiver.provider,
+                },
+            )
+            return self.get_run(run_id)
 
     def release(self, run_id: int, by: str) -> Run:
-        self._require_holder(run_id, by)
-        now = self._now()
-        self._conn.execute(
-            "UPDATE runs SET holder = NULL, status = ?, scope = NULL, lease_expires_at = NULL,"
-            " updated_at = ? WHERE id = ?",
-            (STATUS_OPEN, now, run_id),
-        )
-        self._record(run_id, actor=by, action="release", detail={})
-        return self.get_run(run_id)
+        with self._transaction():
+            self._require_holder(run_id, by)
+            now = self._now()
+            self._conn.execute(
+                "UPDATE runs SET holder = NULL, status = ?, scope = NULL, lease_expires_at = NULL,"
+                " updated_at = ? WHERE id = ?",
+                (STATUS_OPEN, now, run_id),
+            )
+            self._record(run_id, actor=by, action="release", detail={})
+            return self.get_run(run_id)
 
     def act(self, run_id: int, by: str, action: str, detail: str = "") -> Event:
         """Do something on a run. Refused actions are recorded before they are refused."""
@@ -284,84 +314,88 @@ class Room:
 
         scope = run.scope or scopes.DEFAULT_SCOPE
         if not scopes.permits(scope, action):
-            self._record(
-                run_id,
-                actor=by,
-                action="scope-violation",
-                detail={"attempted": action, "scope": scope},
-            )
+            with self._transaction():
+                self._record(
+                    run_id,
+                    actor=by,
+                    action="scope-violation",
+                    detail={"attempted": action, "scope": scope},
+                )
             raise ScopeViolation(
                 f"{by!r} may not {action!r} on run {run_id}: the handoff scope is {scope!r}, "
                 f"which permits {sorted(scopes.actions_for(scope))}"
             )
 
-        return self._record(run_id, actor=by, action=action, detail={"note": detail})
+        with self._transaction():
+            return self._record(run_id, actor=by, action=action, detail={"note": detail})
 
     # -- review gates --------------------------------------------------------
 
     def request_review(self, run_id: int, by: str, summary: str = "") -> Run:
         """Open a gate. From here the run waits for a person; nothing else moves it."""
-        self._require_holder(run_id, by)
-        now = self._now()
-        self._conn.execute(
-            "UPDATE runs SET status = ?, submitted_by = ?, updated_at = ? WHERE id = ?",
-            (STATUS_AWAITING_REVIEW, by, now, run_id),
-        )
-        self._record(run_id, actor=by, action="review-requested", detail={"summary": summary})
-        return self.get_run(run_id)
+        with self._transaction():
+            self._require_holder(run_id, by)
+            now = self._now()
+            self._conn.execute(
+                "UPDATE runs SET status = ?, submitted_by = ?, updated_at = ? WHERE id = ?",
+                (STATUS_AWAITING_REVIEW, by, now, run_id),
+            )
+            self._record(run_id, actor=by, action="review-requested", detail={"summary": summary})
+            return self.get_run(run_id)
 
     def review(self, run_id: int, by: str, decision: str, note: str = "") -> Run:
-        run = self.get_run(run_id)
-        reviewer = self.get_participant(by)
+        with self._transaction():
+            run = self.get_run(run_id)
+            reviewer = self.get_participant(by)
 
-        if run.status != STATUS_AWAITING_REVIEW:
-            raise GateBlocked(
-                f"run {run_id} has no open review gate (status is {run.status!r}); "
-                f"a participant must request review first"
+            if run.status != STATUS_AWAITING_REVIEW:
+                raise GateBlocked(
+                    f"run {run_id} has no open review gate (status is {run.status!r}); "
+                    f"a participant must request review first"
+                )
+
+            if reviewer.name == run.submitted_by:
+                raise NotAReviewer(
+                    f"{by!r} submitted this run for review and may not review its own work"
+                )
+            if reviewer.kind != "human" and not reviewer.reviewer:
+                raise NotAReviewer(
+                    f"{by!r} is not a human and is not a designated reviewer; "
+                    f"register it with reviewer=True to let it resolve gates"
+                )
+
+            if decision not in DECISIONS:
+                raise UnknownDecision(
+                    f"unknown decision {decision!r}; expected one of {', '.join(DECISIONS)}"
+                )
+
+            now = self._now()
+            if decision == "approve":
+                status, holder = STATUS_APPROVED, None
+            elif decision == "reject":
+                status, holder = STATUS_REJECTED, None
+            else:  # remediate and continue both return the work to whoever submitted it
+                status, holder = STATUS_CLAIMED, run.submitted_by
+
+            self._conn.execute(
+                "UPDATE runs SET status = ?, holder = ?, scope = ?, lease_expires_at = ?,"
+                " updated_at = ? WHERE id = ?",
+                (
+                    status,
+                    holder,
+                    run.scope if holder else None,
+                    (now + (run.lease_seconds or DEFAULT_LEASE_SECONDS)) if holder else None,
+                    now,
+                    run_id,
+                ),
             )
-
-        if reviewer.name == run.submitted_by:
-            raise NotAReviewer(
-                f"{by!r} submitted this run for review and may not review its own work"
-            )
-        if reviewer.kind != "human" and not reviewer.reviewer:
-            raise NotAReviewer(
-                f"{by!r} is not a human and is not a designated reviewer; "
-                f"register it with reviewer=True to let it resolve gates"
-            )
-
-        if decision not in DECISIONS:
-            raise UnknownDecision(
-                f"unknown decision {decision!r}; expected one of {', '.join(DECISIONS)}"
-            )
-
-        now = self._now()
-        if decision == "approve":
-            status, holder = STATUS_APPROVED, None
-        elif decision == "reject":
-            status, holder = STATUS_REJECTED, None
-        else:  # remediate and continue both return the work to whoever submitted it
-            status, holder = STATUS_CLAIMED, run.submitted_by
-
-        self._conn.execute(
-            "UPDATE runs SET status = ?, holder = ?, scope = ?, lease_expires_at = ?,"
-            " updated_at = ? WHERE id = ?",
-            (
-                status,
-                holder,
-                run.scope if holder else None,
-                (now + (run.lease_seconds or DEFAULT_LEASE_SECONDS)) if holder else None,
-                now,
+            self._record(
                 run_id,
-            ),
-        )
-        self._record(
-            run_id,
-            actor=reviewer.name,
-            action="review-decision",
-            detail={"decision": decision, "note": note, "submitted_by": run.submitted_by},
-        )
-        return self.get_run(run_id)
+                actor=reviewer.name,
+                action="review-decision",
+                detail={"decision": decision, "note": note, "submitted_by": run.submitted_by},
+            )
+            return self.get_run(run_id)
 
     # -- failure and recovery ------------------------------------------------
 
@@ -376,18 +410,19 @@ class Room:
 
         recovered = []
         for row in rows:
-            self._conn.execute(
-                "UPDATE runs SET holder = NULL, status = ?, scope = NULL,"
-                " lease_expires_at = NULL, updated_at = ? WHERE id = ?",
-                (STATUS_OPEN, now, row["id"]),
-            )
-            self._record(
-                row["id"],
-                actor="system",
-                action="claim-expired",
-                detail={"was_held_by": row["holder"], "scope": row["scope"]},
-            )
-            recovered.append(int(row["id"]))
+            with self._transaction():
+                self._conn.execute(
+                    "UPDATE runs SET holder = NULL, status = ?, scope = NULL,"
+                    " lease_expires_at = NULL, updated_at = ? WHERE id = ?",
+                    (STATUS_OPEN, now, row["id"]),
+                )
+                self._record(
+                    row["id"],
+                    actor="system",
+                    action="claim-expired",
+                    detail={"was_held_by": row["holder"], "scope": row["scope"]},
+                )
+                recovered.append(int(row["id"]))
         return recovered
 
     # -- credentials ---------------------------------------------------------
@@ -455,8 +490,9 @@ class Room:
         return run.lease_expires_at is not None and run.lease_expires_at <= self._now()
 
     def _renew(self, run_id: int, lease: float) -> None:
-        now = self._now()
-        self._conn.execute(
-            "UPDATE runs SET lease_expires_at = ?, updated_at = ? WHERE id = ?",
-            (now + lease, now, run_id),
-        )
+        with self._transaction():
+            now = self._now()
+            self._conn.execute(
+                "UPDATE runs SET lease_expires_at = ?, updated_at = ? WHERE id = ?",
+                (now + lease, now, run_id),
+            )
